@@ -59,7 +59,8 @@ steps:
     commands:
       - apk add --no-cache sed
       - echo "📦 Updating GitOps manifest..."
-      - git clone http://${GITEA_USER}:${GITEA_PASSWORD}@gmk1:30002/gitea-admin/k8s-gitops.git /tmp/gitops
+      # Use Kubernetes service name for internal cluster communication
+      - git clone http://${GITEA_USER}:${GITEA_PASSWORD}@gitea.ci-cd:3000/gitea-admin/k8s-gitops.git /tmp/gitops
       - cd /tmp/gitops
 
       - export SHORT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-8)
