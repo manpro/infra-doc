@@ -34,7 +34,7 @@ steps:
       HOME: /woodpecker/src
     commands:
       - export SHORT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-8)
-      - echo "🐳 Building inventory-bot:$SHORT_SHA..."
+      - echo "🐳 Building inventory-bot $SHORT_SHA"
       - /kaniko/executor
         --context=.
         --dockerfile=./Dockerfile
@@ -43,7 +43,7 @@ steps:
         --insecure
         --skip-tls-verify
         --cache=true
-      - echo "✅ Built and pushed to 172.16.16.161:30551/inventory-bot:$SHORT_SHA"
+      - echo "✅ Built and pushed to 172.16.16.161:30551/inventory-bot $SHORT_SHA"
 
   # ────────────────────────────────────────────────────────────────────────
   # 📝 UPDATE GITOPS
@@ -78,5 +78,5 @@ steps:
     image: alpine
     commands:
       - echo "✅ Pipeline complete!"
-      - echo "📦 Image: 172.16.16.161:30551/inventory-bot:${CI_COMMIT_SHA:0:8}"
+      - echo "📦 Image 172.16.16.161:30551/inventory-bot:${CI_COMMIT_SHA:0:8}"
       - echo "🔄 ArgoCD will auto-deploy to prod3"
