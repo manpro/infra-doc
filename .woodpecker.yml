@@ -1,62 +1,85 @@
----
-# Woodpecker CI/CD Pipeline for Auto-Inventory Bot
-# Builds Docker image and updates GitOps manifest automatically
+################################################################################
+# Woodpecker Pipeline for Auto-Inventory Bot (Simplified)
+#
+# This is a utility, not a critical app - keeping it simple!
+# Build → Push → Update GitOps → Done
+#
+################################################################################
+
+when:
+  branch: [main, master]
+  event: [push]
+
+# Skip default clone (Kaniko compatibility)
+skip_clone: true
 
 steps:
-  # Step 1: Build and Push Docker Image to Local Registry
-  - name: build-push
-    image: plugins/docker
-    settings:
-      registry: gmk1:30551
-      repo: gmk1:30551/inventory-bot
-      tags:
-        - latest
-        - "${CI_COMMIT_SHA:0:7}"
-      insecure: true
-      dockerfile: Dockerfile
-      context: .
-    when:
-      branch: main
-      event: push
 
-  # Step 2: Update GitOps Manifest (Auto-deployment via ArgoCD)
+  # ────────────────────────────────────────────────────────────────────────
+  # 📥 CLONE
+  # ────────────────────────────────────────────────────────────────────────
+
+  - name: clone
+    image: woodpeckerci/plugin-git
+    settings:
+      depth: 1
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 🐳 BUILD & PUSH
+  # ────────────────────────────────────────────────────────────────────────
+
+  - name: build-push
+    image: gcr.io/kaniko-project/executor:debug
+    environment:
+      HOME: /woodpecker/src
+    commands:
+      - export SHORT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-8)
+      - echo "🐳 Building inventory-bot:$SHORT_SHA..."
+      - /kaniko/executor
+        --context=.
+        --dockerfile=./Dockerfile
+        --destination=172.16.16.161:30551/inventory-bot:$SHORT_SHA
+        --destination=172.16.16.161:30551/inventory-bot:latest
+        --insecure
+        --skip-tls-verify
+        --cache=true
+      - echo "✅ Built and pushed to 172.16.16.161:30551/inventory-bot:$SHORT_SHA"
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 📝 UPDATE GITOPS
+  # ────────────────────────────────────────────────────────────────────────
+
   - name: update-gitops
     image: alpine/git
     environment:
-      - GIT_AUTHOR_NAME=Woodpecker CI
-      - GIT_AUTHOR_EMAIL=ci@inventory-bot.local
-      - GIT_COMMITTER_NAME=Woodpecker CI
-      - GIT_COMMITTER_EMAIL=ci@inventory-bot.local
+      GITEA_USER:
+        from_secret: gitea-user
+      GITEA_PASSWORD:
+        from_secret: gitea-password
     commands:
-      - apk add --no-cache git sed
-      - echo "📦 Cloning k8s-gitops repository..."
-      - git clone http://gitea-admin:${GITEA_TOKEN}@172.16.16.161:31000/gitea-admin/k8s-gitops.git /tmp/gitops
+      - apk add --no-cache sed
+      - echo "📦 Updating GitOps manifest..."
+      - git clone http://${GITEA_USER}:${GITEA_PASSWORD}@gmk1:30002/gitea-admin/k8s-gitops.git /tmp/gitops
       - cd /tmp/gitops
 
-      - echo "🔄 Updating image tag to ${CI_COMMIT_SHA:0:7}..."
-      - sed -i "s|image: gmk1:30551/inventory-bot:.*|image: gmk1:30551/inventory-bot:${CI_COMMIT_SHA:0:7}|g" infrastructure/inventory-bot/cronjob.yaml
+      - export SHORT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-8)
+      - sed -i "s|image: .*inventory-bot:.*|image: 172.16.16.161:30551/inventory-bot:$SHORT_SHA|g" infrastructure/inventory-bot/03-cronjob.yaml
 
-      - echo "📝 Committing changes..."
-      - git add infrastructure/inventory-bot/cronjob.yaml
-      - git diff --staged --quiet || git commit -m "chore(inventory-bot): Update image to ${CI_COMMIT_SHA:0:7}"
-
-      - echo "📤 Pushing to GitOps repo..."
+      - git config user.name "Woodpecker CI"
+      - git config user.email "ci@inventory-bot.local"
+      - git add infrastructure/inventory-bot/03-cronjob.yaml
+      - git commit -m "chore: Update inventory-bot to $SHORT_SHA" || echo "No changes"
       - git push origin main
 
-      - echo "✅ GitOps manifest updated - ArgoCD will handle deployment"
-    secrets:
-      - source: gitea_token
-        target: GITEA_TOKEN
-    when:
-      branch: main
-      event: push
+      - echo "✅ GitOps updated - ArgoCD will deploy"
 
-  # Step 3: Notification (Optional)
-  - name: notify
+  # ────────────────────────────────────────────────────────────────────────
+  # ✅ DONE
+  # ────────────────────────────────────────────────────────────────────────
+
+  - name: done
     image: alpine
     commands:
-      - echo "🎉 Pipeline Complete!"
-      - echo "📦 Image: gmk1:30551/inventory-bot:${CI_COMMIT_SHA:0:7}"
-      - echo "🔄 GitOps updated - ArgoCD will sync automatically"
-    when:
-      status: success
+      - echo "✅ Pipeline complete!"
+      - echo "📦 Image: 172.16.16.161:30551/inventory-bot:${CI_COMMIT_SHA:0:8}"
+      - echo "🔄 ArgoCD will auto-deploy to prod3"

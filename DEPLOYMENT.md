@@ -28,21 +28,21 @@ This guide follows the **"Zero Manual Work"** philosophy. The inventory bot is t
 tea repos create --name inventory-bot --description "Auto-Inventory Bot for K8s Infrastructure"
 ```
 
-### Step 2: Push This Code to Gitea
+### Step 2: Push to GitHub and Gitea
 
 ```bash
 cd /home/micke/documents/infra-doc
 
-# Add Gitea as remote (if not already done)
-git remote add gitea http://172.16.16.161:31000/gitea-admin/inventory-bot.git
+# Already pushed to GitHub (done!)
 
-# Push to Gitea
+# Add Gitea mirror (optional, for local Woodpecker CI)
+git remote add gitea http://172.16.16.161:31000/gitea-admin/inventory-bot.git
 git push gitea main
 
-# Enable Woodpecker CI/CD
-# 1. Go to Woodpecker UI
-# 2. Enable the "inventory-bot" repository
-# 3. Woodpecker will now watch for pushes
+# Enable in Woodpecker
+# 1. Woodpecker UI → Repositories
+# 2. Enable "inventory-bot"
+# 3. Add secrets: gitea-user, gitea-password (reuse existing ones)
 ```
 
 ### Step 3: Setup GitOps
@@ -91,32 +91,32 @@ Once setup is complete, the entire workflow is automated:
 
 ```
 ┌─────────────────┐
-│ 1. Push Code    │  Developer pushes to inventory-bot repo
-│    to Gitea     │
+│ 1. Push Code    │  Developer pushes to GitHub/Gitea
+│    to Repo      │
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│ 2. Woodpecker   │  Builds Docker image → gmk1:30551/inventory-bot:abc1234
-│    CI/CD        │
+│ 2. Woodpecker   │  Kaniko builds → 172.16.16.161:30551/inventory-bot:abc123
+│    CI/CD        │  (Simplified pipeline - it's just a utility!)
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│ 3. Update       │  Woodpecker updates image tag in k8s-gitops/infrastructure/
-│    GitOps Repo  │  inventory-bot/03-cronjob.yaml
+│ 3. Update       │  Updates k8s-gitops (Gitea)
+│    GitOps Repo  │  infrastructure/inventory-bot/03-cronjob.yaml
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│ 4. ArgoCD       │  Detects change and deploys to prod3
+│ 4. ArgoCD       │  Auto-sync to prod3
 │    Auto-Sync    │
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│ 5. Bot Runs     │  Daily at 2 AM UTC, scans infrastructure,
-│    on Schedule  │  commits docs to infrastructure-docs repo
+│ 5. Bot Runs     │  Daily at 2 AM UTC → scans → commits docs
+│    on Schedule  │  (Zero manual work!)
 └─────────────────┘
 ```
 
