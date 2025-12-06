@@ -53,9 +53,9 @@ steps:
     image: alpine/git
     environment:
       GITEA_USER:
-        from_secret: gitea-user
+        from_secret: gitea_user
       GITEA_PASSWORD:
-        from_secret: gitea-password
+        from_secret: gitea_password
     commands:
       - apk add --no-cache sed
       - echo "📦 Updating GitOps manifest..."
