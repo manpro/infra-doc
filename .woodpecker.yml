@@ -62,7 +62,7 @@ steps:
       - git clone http://$${GITEA_USER}:$${GITEA_PASSWORD}@gitea.ci-cd:3000/gitea-admin/k8s-gitops.git /tmp/gitops
       - cd /tmp/gitops
       - export SHORT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-8)
-      - sed -i "s|image:.*inventory-bot:.*|image:172.16.16.161:30551/inventory-bot:$SHORT_SHA|g" infrastructure/inventory-bot/03-cronjob.yaml
+      - sed -i "s|image:.*inventory-bot:.*|image: 172.16.16.161:30551/inventory-bot:$SHORT_SHA|g" infrastructure/inventory-bot/03-cronjob.yaml
       - git config user.name "Woodpecker CI"
       - git config user.email "ci@inventory-bot.local"
       - git add infrastructure/inventory-bot/03-cronjob.yaml
