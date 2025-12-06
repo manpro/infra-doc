@@ -1,0 +1,211 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: infrastructure-docs
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: inventory-bot
+  namespace: infrastructure-docs
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: inventory-bot-reader
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - pods
+      - services
+    verbs:
+      - get
+      - list
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - list
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: inventory-bot-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: inventory-bot-reader
+subjects:
+  - kind: ServiceAccount
+    name: inventory-bot
+    namespace: infrastructure-docs
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: git-wrapper
+  namespace: infrastructure-docs
+data:
+  run.sh: |
+    #!/bin/bash
+    set -e
+
+    echo "=================================="
+    echo "🚀 Starting Auto-Inventory Bot"
+    echo "=================================="
+
+    # Configure git
+    cd /workspace
+    git config user.name "Auto-Inventory Bot"
+    git config user.email "inventory-bot@k8s.local"
+
+    # Run the inventory script
+    echo ""
+    echo "Running inventory scan..."
+    python3 /app/inventory.py
+
+    # Check for changes
+    echo ""
+    echo "Checking for changes..."
+    git add docs/
+
+    if git diff --staged --quiet; then
+      echo "ℹ️  No changes detected - skipping commit"
+    else
+      # Commit and push changes
+      TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+      echo "📝 Changes detected - committing..."
+      git commit -m "docs: Auto-update inventory - ${TIMESTAMP}"
+
+      echo "📤 Pushing to remote..."
+      git push origin main
+
+      echo "✅ Successfully pushed changes to repository"
+    fi
+
+    echo ""
+    echo "=================================="
+    echo "✅ Auto-Inventory Bot Completed"
+    echo "=================================="
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: auto-inventory-bot
+  namespace: infrastructure-docs
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: inventory-bot
+        spec:
+          serviceAccountName: inventory-bot
+          restartPolicy: OnFailure
+
+          # CRITICAL: Force execution on prod3
+          nodeSelector:
+            kubernetes.io/hostname: prod3
+
+          initContainers:
+            - name: git-clone
+              image: alpine/git:latest
+              command:
+                - sh
+                - -c
+                - |
+                  echo "🔄 Cloning repository..."
+                  git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@${GIT_REPO_URL} /workspace
+                  echo "✅ Repository cloned successfully"
+                  ls -la /workspace
+              env:
+                - name: GIT_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: git-credentials
+                      key: username
+                - name: GIT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: git-credentials
+                      key: password
+                - name: GIT_REPO_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: git-credentials
+                      key: repo_url
+              volumeMounts:
+                - name: workspace
+                  mountPath: /workspace
+
+          containers:
+            - name: inventory-bot
+              image: your-registry/auto-inventory-bot:latest  # TODO: Replace with your image
+              imagePullPolicy: Always
+              command: ["/bin/bash", "/scripts/run.sh"]
+              env:
+                - name: OUTPUT_DIR
+                  value: "/workspace/docs"
+                - name: GIT_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: git-credentials
+                      key: username
+                - name: GIT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: git-credentials
+                      key: password
+              volumeMounts:
+                - name: workspace
+                  mountPath: /workspace
+                - name: git-wrapper
+                  mountPath: /scripts
+              resources:
+                requests:
+                  memory: "128Mi"
+                  cpu: "100m"
+                limits:
+                  memory: "256Mi"
+                  cpu: "200m"
+
+          volumes:
+            - name: workspace
+              emptyDir: {}
+            - name: git-wrapper
+              configMap:
+                name: git-wrapper
+                defaultMode: 0755
+
+---
+# Example Secret (DO NOT commit with real credentials!)
+# Create this manually with:
+# kubectl create secret generic git-credentials \
+#   --from-literal=username=your-git-user \
+#   --from-literal=password=your-git-token \
+#   --from-literal=repo_url=gitea.yourdomain.com/username/infrastructure-docs.git \
+#   -n infrastructure-docs
+#
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: git-credentials
+#   namespace: infrastructure-docs
+# type: Opaque
+# data:
+#   username: <base64-encoded-username>
+#   password: <base64-encoded-token>
+#   repo_url: <base64-encoded-repo-url>
