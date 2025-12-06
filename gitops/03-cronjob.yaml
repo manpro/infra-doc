@@ -58,7 +58,7 @@ spec:
 
           containers:
             - name: inventory-bot
-              image: gmk1:30551/inventory-bot:latest
+              image: 172.16.16.161:30551/inventory-bot:latest
               imagePullPolicy: Always
               command: ["/bin/bash", "/scripts/run.sh"]
               env:
