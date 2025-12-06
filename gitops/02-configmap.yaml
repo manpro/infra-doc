@@ -1,0 +1,48 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: git-wrapper
+  namespace: infrastructure-docs
+data:
+  run.sh: |
+    #!/bin/bash
+    set -e
+
+    echo "=================================="
+    echo "🚀 Starting Auto-Inventory Bot"
+    echo "=================================="
+
+    # Configure git
+    cd /workspace
+    git config user.name "Auto-Inventory Bot"
+    git config user.email "inventory-bot@k8s.local"
+
+    # Run the inventory script
+    echo ""
+    echo "Running inventory scan..."
+    python3 /app/inventory.py
+
+    # Check for changes
+    echo ""
+    echo "Checking for changes..."
+    git add docs/
+
+    if git diff --staged --quiet; then
+      echo "ℹ️  No changes detected - skipping commit"
+    else
+      # Commit and push changes
+      TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+      echo "📝 Changes detected - committing..."
+      git commit -m "docs: Auto-update inventory - ${TIMESTAMP}"
+
+      echo "📤 Pushing to remote..."
+      git push origin main
+
+      echo "✅ Successfully pushed changes to repository"
+    fi
+
+    echo ""
+    echo "=================================="
+    echo "✅ Auto-Inventory Bot Completed"
+    echo "=================================="

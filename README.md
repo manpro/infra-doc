@@ -12,6 +12,8 @@ Maintain always-up-to-date infrastructure documentation by scanning:
 
 ## 🏗️ Architecture
 
+- **Deployment:** GitOps via ArgoCD (Application #41)
+- **CI/CD:** Woodpecker pipeline (automatic builds)
 - **Execution Node:** `prod3` (resource-optimized placement)
 - **Schedule:** Daily at 2:00 AM UTC
 - **Output:** Git repository with Obsidian-compatible Markdown files
@@ -24,45 +26,42 @@ infra-doc/
 ├── inventory.py          # Main scanning logic
 ├── requirements.txt      # Python dependencies
 ├── Dockerfile           # Container image definition
-└── deploy/
-    └── cronjob.yaml     # Kubernetes deployment manifest
+├── .woodpecker.yml      # CI/CD pipeline configuration
+├── DEPLOYMENT.md        # Complete deployment guide
+├── deploy/
+│   └── cronjob.yaml     # Kubernetes deployment manifest
+└── gitops/              # GitOps-ready manifests
+    ├── README.md        # GitOps setup instructions
+    ├── 00-namespace.yaml
+    ├── 01-rbac.yaml
+    ├── 02-configmap.yaml
+    └── 03-cronjob.yaml
 ```
 
-## 🚀 Quick Start
+## 🚀 Quick Start (The DevOps Way)
 
-### 1. Build and Push Docker Image
+**Read this first:** This is NOT deployed manually. It follows the "Zero Manual Work" philosophy.
+
+👉 **See [DEPLOYMENT.md](DEPLOYMENT.md) for the complete DevOps deployment guide.**
+
+### TL;DR - 3 Steps
+
+1. **Push to Gitea** → Enables Woodpecker CI/CD
+2. **Copy `gitops/` manifests to k8s-gitops repo** → ArgoCD deploys automatically
+3. **Create git-credentials secret** → The ONLY manual command needed
 
 ```bash
-docker build -t your-registry/auto-inventory-bot:latest .
-docker push your-registry/auto-inventory-bot:latest
-```
-
-### 2. Create Git Credentials Secret
-
-```bash
+# The ONLY manual command you'll ever run:
 kubectl create secret generic git-credentials \
-  --from-literal=username=your-gitea-user \
-  --from-literal=password=your-gitea-token \
-  --from-literal=repo_url=gitea.yourdomain.com/username/infrastructure-docs.git \
+  --from-literal=username=gitea-admin \
+  --from-literal=password=YOUR_GITEA_TOKEN \
+  --from-literal=repo_url=gitea-http.gitea.svc.cluster.local:3000/gitea-admin/infrastructure-docs.git \
   -n infrastructure-docs
 ```
 
-### 3. Update Image Reference
-
-Edit `deploy/cronjob.yaml` and replace `your-registry/auto-inventory-bot:latest` with your actual image location.
-
-### 4. Deploy to Kubernetes
-
-```bash
-kubectl apply -f deploy/cronjob.yaml
-```
-
-### 5. Test Immediately (Optional)
-
-```bash
-kubectl create job --from=cronjob/auto-inventory-bot manual-test-1 -n infrastructure-docs
-kubectl logs -f job/manual-test-1 -n infrastructure-docs
-```
+**After that, everything is automated:**
+- Code changes → Woodpecker builds → GitOps updates → ArgoCD deploys
+- Bot runs daily → Scans infrastructure → Commits docs → Forever
 
 ## 📊 Output Format
 

@@ -1,0 +1,62 @@
+---
+# Woodpecker CI/CD Pipeline for Auto-Inventory Bot
+# Builds Docker image and updates GitOps manifest automatically
+
+steps:
+  # Step 1: Build and Push Docker Image to Local Registry
+  - name: build-push
+    image: plugins/docker
+    settings:
+      registry: gmk1:30551
+      repo: gmk1:30551/inventory-bot
+      tags:
+        - latest
+        - "${CI_COMMIT_SHA:0:7}"
+      insecure: true
+      dockerfile: Dockerfile
+      context: .
+    when:
+      branch: main
+      event: push
+
+  # Step 2: Update GitOps Manifest (Auto-deployment via ArgoCD)
+  - name: update-gitops
+    image: alpine/git
+    environment:
+      - GIT_AUTHOR_NAME=Woodpecker CI
+      - GIT_AUTHOR_EMAIL=ci@inventory-bot.local
+      - GIT_COMMITTER_NAME=Woodpecker CI
+      - GIT_COMMITTER_EMAIL=ci@inventory-bot.local
+    commands:
+      - apk add --no-cache git sed
+      - echo "📦 Cloning k8s-gitops repository..."
+      - git clone http://gitea-admin:${GITEA_TOKEN}@172.16.16.161:31000/gitea-admin/k8s-gitops.git /tmp/gitops
+      - cd /tmp/gitops
+
+      - echo "🔄 Updating image tag to ${CI_COMMIT_SHA:0:7}..."
+      - sed -i "s|image: gmk1:30551/inventory-bot:.*|image: gmk1:30551/inventory-bot:${CI_COMMIT_SHA:0:7}|g" infrastructure/inventory-bot/cronjob.yaml
+
+      - echo "📝 Committing changes..."
+      - git add infrastructure/inventory-bot/cronjob.yaml
+      - git diff --staged --quiet || git commit -m "chore(inventory-bot): Update image to ${CI_COMMIT_SHA:0:7}"
+
+      - echo "📤 Pushing to GitOps repo..."
+      - git push origin main
+
+      - echo "✅ GitOps manifest updated - ArgoCD will handle deployment"
+    secrets:
+      - source: gitea_token
+        target: GITEA_TOKEN
+    when:
+      branch: main
+      event: push
+
+  # Step 3: Notification (Optional)
+  - name: notify
+    image: alpine
+    commands:
+      - echo "🎉 Pipeline Complete!"
+      - echo "📦 Image: gmk1:30551/inventory-bot:${CI_COMMIT_SHA:0:7}"
+      - echo "🔄 GitOps updated - ArgoCD will sync automatically"
+    when:
+      status: success

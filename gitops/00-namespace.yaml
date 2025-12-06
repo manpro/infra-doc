@@ -1,0 +1,8 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: infrastructure-docs
+  labels:
+    app: inventory-bot
+    managed-by: argocd

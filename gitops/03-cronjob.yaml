@@ -1,108 +1,13 @@
 ---
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: infrastructure-docs
-
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: inventory-bot
-  namespace: infrastructure-docs
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: inventory-bot-reader
-rules:
-  - apiGroups: [""]
-    resources:
-      - nodes
-      - pods
-      - services
-    verbs:
-      - get
-      - list
-  - apiGroups: ["networking.k8s.io"]
-    resources:
-      - ingresses
-    verbs:
-      - get
-      - list
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: inventory-bot-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: inventory-bot-reader
-subjects:
-  - kind: ServiceAccount
-    name: inventory-bot
-    namespace: infrastructure-docs
-
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: git-wrapper
-  namespace: infrastructure-docs
-data:
-  run.sh: |
-    #!/bin/bash
-    set -e
-
-    echo "=================================="
-    echo "🚀 Starting Auto-Inventory Bot"
-    echo "=================================="
-
-    # Configure git
-    cd /workspace
-    git config user.name "Auto-Inventory Bot"
-    git config user.email "inventory-bot@k8s.local"
-
-    # Run the inventory script
-    echo ""
-    echo "Running inventory scan..."
-    python3 /app/inventory.py
-
-    # Check for changes
-    echo ""
-    echo "Checking for changes..."
-    git add docs/
-
-    if git diff --staged --quiet; then
-      echo "ℹ️  No changes detected - skipping commit"
-    else
-      # Commit and push changes
-      TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-      echo "📝 Changes detected - committing..."
-      git commit -m "docs: Auto-update inventory - ${TIMESTAMP}"
-
-      echo "📤 Pushing to remote..."
-      git push origin main
-
-      echo "✅ Successfully pushed changes to repository"
-    fi
-
-    echo ""
-    echo "=================================="
-    echo "✅ Auto-Inventory Bot Completed"
-    echo "=================================="
-
----
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: auto-inventory-bot
   namespace: infrastructure-docs
+  labels:
+    app: inventory-bot
 spec:
-  schedule: "0 2 * * *"  # Daily at 2 AM
+  schedule: "0 2 * * *"  # Daily at 2 AM UTC
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   concurrencyPolicy: Forbid
@@ -116,7 +21,7 @@ spec:
           serviceAccountName: inventory-bot
           restartPolicy: OnFailure
 
-          # CRITICAL: Force execution on prod3
+          # CRITICAL: Force execution on prod3 to save resources
           nodeSelector:
             kubernetes.io/hostname: prod3
 
@@ -128,7 +33,7 @@ spec:
                 - -c
                 - |
                   echo "🔄 Cloning repository..."
-                  git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@${GIT_REPO_URL} /workspace
+                  git clone http://${GIT_USERNAME}:${GIT_PASSWORD}@${GIT_REPO_URL} /workspace
                   echo "✅ Repository cloned successfully"
                   ls -la /workspace
               env:
@@ -189,15 +94,3 @@ spec:
               configMap:
                 name: git-wrapper
                 defaultMode: 0755
-
----
-# Example Secret (DO NOT commit with real credentials!)
-# Create this ONCE manually with:
-#
-# kubectl create secret generic git-credentials \
-#   --from-literal=username=gitea-admin \
-#   --from-literal=password=YOUR_GITEA_TOKEN \
-#   --from-literal=repo_url=gitea-http.gitea.svc.cluster.local:3000/gitea-admin/infrastructure-docs.git \
-#   -n infrastructure-docs
-#
-# Note: Using internal Kubernetes service URL to keep traffic in-cluster
