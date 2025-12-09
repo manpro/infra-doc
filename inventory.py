@@ -20,17 +20,30 @@ class InventoryBot:
         self.output_dir = Path(output_dir)
         self.v1 = None
         self.net_v1 = None
+        self.kubeconfig_path = os.getenv('KUBECONFIG_PATH')
+        self.current_cluster = None
         self._setup_k8s_client()
 
-    def _setup_k8s_client(self):
+    def _get_contexts(self):
+        """Get all contexts from kubeconfig."""
+        if self.kubeconfig_path:
+            try:
+                contexts, active_context = config.list_kube_config_contexts(config_file=self.kubeconfig_path)
+                return [ctx['name'] for ctx in contexts]
+            except config.ConfigException:
+                return []
+        return []
+
+    def _setup_k8s_client(self, context_name=None):
         """Setup Kubernetes client with fallback authentication."""
         kubeconfig_path = os.getenv('KUBECONFIG_PATH')
 
         if kubeconfig_path:
             # Remote cluster access via kubeconfig file
             try:
-                config.load_kube_config(config_file=kubeconfig_path)
-                print(f"✓ Loaded kubeconfig from {kubeconfig_path}")
+                config.load_kube_config(config_file=kubeconfig_path, context=context_name)
+                self.current_cluster = context_name if context_name else "default"
+                print(f"✓ Loaded kubeconfig from {kubeconfig_path}" + (f" (context: {context_name})" if context_name else ""))
             except config.ConfigException as e:
                 print(f"✗ Failed to load kubeconfig from {kubeconfig_path}: {e}")
                 sys.exit(1)
@@ -38,10 +51,12 @@ class InventoryBot:
             # In-cluster or local kubeconfig
             try:
                 config.load_incluster_config()
+                self.current_cluster = "in-cluster"
                 print("✓ Loaded in-cluster Kubernetes configuration")
             except config.ConfigException:
                 try:
                     config.load_kube_config()
+                    self.current_cluster = "local"
                     print("✓ Loaded kubeconfig from local environment")
                 except config.ConfigException as e:
                     print(f"✗ Failed to load Kubernetes configuration: {e}")
@@ -101,6 +116,7 @@ class InventoryBot:
             # Create frontmatter
             frontmatter = {
                 'type': 'hardware',
+                'cluster': self.current_cluster,
                 'hostname': hostname,
                 'ip': internal_ip,
                 'status': node_ready,
@@ -113,8 +129,9 @@ class InventoryBot:
 
             # Create content
             content = f"# {hostname}\n\n"
-            content += f"**Physical Server:** `{hostname}`\n\n"
+            content += f"**Physical Server:** `{hostname}` (Cluster: `{self.current_cluster}`)\n\n"
             content += f"## System Information\n\n"
+            content += f"- **Cluster:** {self.current_cluster}\n"
             content += f"- **Internal IP:** {internal_ip}\n"
             content += f"- **Status:** {node_ready}\n"
             content += f"- **OS:** {os_image}\n"
@@ -205,6 +222,7 @@ class InventoryBot:
             # Create frontmatter
             frontmatter = {
                 'type': 'application',
+                'cluster': self.current_cluster,
                 'name': app_name,
                 'namespace': namespace,
                 'url': primary_url,
@@ -214,7 +232,7 @@ class InventoryBot:
 
             # Create content with wiki-style links
             content = f"# {app_name}\n\n"
-            content += f"**Application deployed in namespace:** `{namespace}`\n\n"
+            content += f"**Application deployed in namespace:** `{namespace}` (Cluster: `{self.current_cluster}`)\n\n"
             content += f"## Access\n\n"
 
             if hosts:
@@ -259,8 +277,26 @@ class InventoryBot:
         print("🤖 Auto-Inventory Bot - Starting Infrastructure Scan")
         print("=" * 60)
 
-        self.scan_nodes()
-        self.scan_applications()
+        # Get all contexts if using multi-cluster kubeconfig
+        contexts = self._get_contexts()
+
+        if contexts:
+            print(f"\n📊 Found {len(contexts)} clusters to scan: {', '.join(contexts)}\n")
+            for context in contexts:
+                print(f"\n{'=' * 60}")
+                print(f"🔍 Scanning cluster: {context}")
+                print(f"{'=' * 60}")
+
+                # Switch to this context
+                self._setup_k8s_client(context_name=context)
+
+                # Scan this cluster
+                self.scan_nodes()
+                self.scan_applications()
+        else:
+            # Single cluster mode
+            self.scan_nodes()
+            self.scan_applications()
 
         print("\n" + "=" * 60)
         print("✅ Inventory scan completed successfully!")
