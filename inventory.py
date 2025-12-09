@@ -24,16 +24,28 @@ class InventoryBot:
 
     def _setup_k8s_client(self):
         """Setup Kubernetes client with fallback authentication."""
-        try:
-            config.load_incluster_config()
-            print("✓ Loaded in-cluster Kubernetes configuration")
-        except config.ConfigException:
+        kubeconfig_path = os.getenv('KUBECONFIG_PATH')
+
+        if kubeconfig_path:
+            # Remote cluster access via kubeconfig file
             try:
-                config.load_kube_config()
-                print("✓ Loaded kubeconfig from local environment")
+                config.load_kube_config(config_file=kubeconfig_path)
+                print(f"✓ Loaded kubeconfig from {kubeconfig_path}")
             except config.ConfigException as e:
-                print(f"✗ Failed to load Kubernetes configuration: {e}")
+                print(f"✗ Failed to load kubeconfig from {kubeconfig_path}: {e}")
                 sys.exit(1)
+        else:
+            # In-cluster or local kubeconfig
+            try:
+                config.load_incluster_config()
+                print("✓ Loaded in-cluster Kubernetes configuration")
+            except config.ConfigException:
+                try:
+                    config.load_kube_config()
+                    print("✓ Loaded kubeconfig from local environment")
+                except config.ConfigException as e:
+                    print(f"✗ Failed to load Kubernetes configuration: {e}")
+                    sys.exit(1)
 
         self.v1 = client.CoreV1Api()
         self.net_v1 = client.NetworkingV1Api()
